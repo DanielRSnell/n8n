@@ -1,0 +1,131 @@
+{
+  "name": "Webhook to WordPress ACF Submission",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "submission-webhook",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://your-wordpress-site.com/wp-json/wp/v2/submissions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "wordPressApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "title",
+              "value": "={{ $json.title || 'New Submission - ' + new Date().toISOString() }}"
+            },
+            {
+              "name": "content",
+              "value": "={{ $json.content || $json.description || '' }}"
+            },
+            {
+              "name": "status",
+              "value": "publish"
+            },
+            {
+              "name": "acf",
+              "value": {
+                "status": "={{ $json.status || $json.submission_status || 'Pending' }}",
+                "assigned_user": "={{ $json.assigned_user || $json.assigned_user_id || null }}",
+                "assigned_team": "={{ $json.assigned_team || $json.assigned_team_id || null }}",
+                "products": "={{ $json.products || $json.product_ids || [] }}"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "create-wp-submission",
+      "name": "Create WordPress Submission",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": {
+          "success": true,
+          "message": "Submission created successfully",
+          "wordpress_id": "={{ $json.id }}",
+          "submission_data": {
+            "title": "={{ $json.title.rendered }}",
+            "status": "={{ $json.acf.status }}",
+            "assigned_user": "={{ $json.acf.assigned_user }}",
+            "assigned_team": "={{ $json.acf.assigned_team }}",
+            "products": "={{ $json.acf.products }}"
+          }
+        }
+      },
+      "id": "webhook-response",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        680,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Create WordPress Submission",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create WordPress Submission": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2025-01-01T00:00:00.000Z",
+  "versionId": "1"
+}
