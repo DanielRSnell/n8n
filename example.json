@@ -1,12 +1,14 @@
 {
-  "name": "Webhook to WordPress ACF Submission",
+  "name": "Webhook to WordPress ACF Submission with Files",
   "nodes": [
     {
       "parameters": {
         "httpMethod": "POST",
         "path": "submission-webhook",
         "responseMode": "responseNode",
-        "options": {}
+        "options": {
+          "binaryData": true
+        }
       },
       "id": "webhook-trigger",
       "name": "Webhook",
@@ -33,31 +35,8 @@
           ]
         },
         "sendBody": true,
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "title",
-              "value": "={{ $json.title || 'New Submission - ' + new Date().toISOString() }}"
-            },
-            {
-              "name": "content",
-              "value": "={{ $json.content || $json.description || '' }}"
-            },
-            {
-              "name": "status",
-              "value": "publish"
-            },
-            {
-              "name": "acf",
-              "value": {
-                "status": "={{ $json.status || $json.submission_status || 'Pending' }}",
-                "assigned_user": "={{ $json.assigned_user || $json.assigned_user_id || null }}",
-                "assigned_team": "={{ $json.assigned_team || $json.assigned_team_id || null }}",
-                "products": "={{ $json.products || $json.product_ids || [] }}"
-              }
-            }
-          ]
-        },
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"title\": \"{{ $json.body.projectTitle || 'New Submission' }}\",\n  \"content\": \"{{ $json.body.projectDescription || '' }}\",\n  \"status\": \"publish\",\n  \"acf\": {\n    \"status\": \"Pending\",\n    \"assigned_user\": {{ $json.body.user_id || null }},\n    \"assigned_team\": null,\n    \"products\": []\n  },\n  \"meta\": {\n    \"material_type\": \"{{ $json.body.materialType }}\",\n    \"user_email\": \"{{ $json.body.user_email }}\",\n    \"user_display_name\": \"{{ $json.body.user_display_name }}\",\n    \"event_type\": \"{{ $json.body.event }}\",\n    \"has_design_files\": {{ Object.keys($binary).includes('design_files') ? 'true' : 'false' }}\n  }\n}",
         "options": {}
       },
       "id": "create-wp-submission",
@@ -71,27 +50,120 @@
     },
     {
       "parameters": {
-        "respondWith": "json",
-        "responseBody": {
-          "success": true,
-          "message": "Submission created successfully",
-          "wordpress_id": "={{ $json.id }}",
-          "submission_data": {
-            "title": "={{ $json.title.rendered }}",
-            "status": "={{ $json.acf.status }}",
-            "assigned_user": "={{ $json.acf.assigned_user }}",
-            "assigned_team": "={{ $json.acf.assigned_team }}",
-            "products": "={{ $json.acf.products }}"
-          }
-        }
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-1",
+              "leftValue": "={{ Object.keys($binary).includes('design_files') }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
       },
-      "id": "webhook-response",
-      "name": "Webhook Response",
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1,
+      "id": "check-files",
+      "name": "Check for Design Files",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
       "position": [
         680,
         300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://your-wordpress-site.com/wp-json/wp/v2/media",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "wordPressApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Disposition",
+              "value": "=attachment; filename=\"{{ $binary.design_files.fileName || 'design_file.bin' }}\""
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "binaryData",
+        "bodyBinaryPropertyName": "design_files",
+        "options": {}
+      },
+      "id": "upload-design-files",
+      "name": "Upload Design Files",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        900,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://your-wordpress-site.com/wp-json/wp/v2/submissions/{{ $('Create WordPress Submission').item.json.id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "wordPressApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"acf\": {\n    \"status\": \"{{ $('Create WordPress Submission').item.json.acf.status }}\",\n    \"assigned_user\": {{ $('Create WordPress Submission').item.json.acf.assigned_user }},\n    \"assigned_team\": {{ $('Create WordPress Submission').item.json.acf.assigned_team }},\n    \"products\": {{ JSON.stringify($('Create WordPress Submission').item.json.acf.products) }},\n    \"design_files\": [{{ $json.id }}]\n  }\n}",
+        "options": {}
+      },
+      "id": "update-with-files",
+      "name": "Update Submission with Files",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1120,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"message\": \"Submission created successfully\",\n  \"wordpress_id\": {{ $('Create WordPress Submission').item.json.id }},\n  \"submission_data\": {\n    \"title\": \"{{ $('Create WordPress Submission').item.json.title.rendered }}\",\n    \"status\": \"{{ $('Create WordPress Submission').item.json.acf.status }}\",\n    \"material_type\": \"{{ $('Webhook').item.json.body.materialType }}\",\n    \"user_info\": {\n      \"id\": {{ $('Webhook').item.json.body.user_id }},\n      \"email\": \"{{ $('Webhook').item.json.body.user_email }}\",\n      \"name\": \"{{ $('Webhook').item.json.body.user_display_name }}\"\n    },\n    \"has_files\": {{ Object.keys($('Webhook').item.binary || {}).includes('design_files') ? 'true' : 'false' }}\n  }\n}"
+      },
+      "id": "webhook-response-with-files",
+      "name": "Webhook Response (With Files)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1340,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"message\": \"Submission created successfully\",\n  \"wordpress_id\": {{ $json.id }},\n  \"submission_data\": {\n    \"title\": \"{{ $json.title.rendered }}\",\n    \"status\": \"{{ $json.acf.status }}\",\n    \"material_type\": \"{{ $('Webhook').item.json.body.materialType }}\",\n    \"user_info\": {\n      \"id\": {{ $('Webhook').item.json.body.user_id }},\n      \"email\": \"{{ $('Webhook').item.json.body.user_email }}\",\n      \"name\": \"{{ $('Webhook').item.json.body.user_display_name }}\"\n    },\n    \"has_files\": false\n  }\n}"
+      },
+      "id": "webhook-response-no-files",
+      "name": "Webhook Response (No Files)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        900,
+        380
       ]
     }
   ],
@@ -111,7 +183,47 @@
       "main": [
         [
           {
-            "node": "Webhook Response",
+            "node": "Check for Design Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check for Design Files": {
+      "main": [
+        [
+          {
+            "node": "Upload Design Files",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Webhook Response (No Files)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload Design Files": {
+      "main": [
+        [
+          {
+            "node": "Update Submission with Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Submission with Files": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response (With Files)",
             "type": "main",
             "index": 0
           }
